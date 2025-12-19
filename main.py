@@ -49,6 +49,11 @@ class UniNicknamePlugin(Star):
                 custom_nickname = mappings[sender_id]
                 original_nickname = event.get_sender_name()
                 
+                # 安全性检查：如果原始昵称不存在或为空字符串，跳过处理，防止 replace("", "...") 引发 Bug
+                if not original_nickname:
+                    logger.warning(f"无法获取用户 {sender_id} 的原始昵称，跳过映射处理。")
+                    return
+
                 working_mode = self.config.get("working_mode", "safe")
                 
                 if working_mode == "safe":
