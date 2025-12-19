@@ -3,6 +3,22 @@
     "description": "用户ID与昵称映射表",
     "type": "list",
     "default": [],
-    "hint": "每一项格式为：用户ID,昵称（使用半角逗号分隔）。例如：123456789,张三"
+    "hint": "每一项格式为：用户ID,昵称。例如：123456789,张三"
+  },
+  "working_mode": {
+    "description": "工作模式",
+    "type": "string",
+    "default": "safe",
+    "options": [
+      "safe",
+      "global"
+    ],
+    "hint": "safe 模式通过 System Prompt 引导 AI，不修改原始消息；global 模式直接替换文本（有语义破坏风险）"
+  },
+  "enable_session_replace": {
+    "description": "开启历史记录替换 (Global 模式专用)",
+    "type": "bool",
+    "default": false,
+    "hint": "在 global 模式下是否修改上下文历史消息。高风险操作，可能会导致语义混乱及上下文不一致。"
   }
 }

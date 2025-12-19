@@ -40,33 +40,45 @@ class UniNicknamePlugin(Star):
 
     @filter.on_llm_request()
     async def replace_nickname_in_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
-        """在LLM请求前拦截并替换发送者昵称"""
+        """在LLM请求前根据配置的模式处理昵称"""
         try:
-            # 获取发送者ID
             sender_id = event.get_sender_id()
-            
-            # 解析昵称映射
             mappings = self._parse_mappings()
             
-            # 查找映射的昵称
             if sender_id in mappings:
                 custom_nickname = mappings[sender_id]
                 original_nickname = event.get_sender_name()
                 
-                # 在消息中替换昵称
-                # 替换 prompt 和 session 中的昵称引用
-                if req.prompt:
-                    req.prompt = req.prompt.replace(original_nickname, custom_nickname)
+                working_mode = self.config.get("working_mode", "safe")
                 
-                # 替换 session 历史消息中的昵称
-                if hasattr(req, 'session') and req.session:
-                    for msg in req.session:
-                        if hasattr(msg, 'content') and isinstance(msg.content, str):
-                            msg.content = msg.content.replace(original_nickname, custom_nickname)
+                if working_mode == "safe":
+                    # 安全模式：通过 System Prompt 引导 AI，不修改原始文本
+                    # 这样可以避免 "I will" 变成 "I Boss" 的语义问题
+                    instruction = f"\n[System Note: The current user '{original_nickname}' (ID: {sender_id}) should be addressed as '{custom_nickname}'. Please use this custom nickname when responding to them.]\n"
+                    if req.system_prompt:
+                        req.system_prompt += instruction
+                    else:
+                        req.system_prompt = instruction
+                    logger.debug(f"安全模式：向 System Prompt 注入昵称引导 ({original_nickname} -> {custom_nickname})")
                 
-                logger.debug(f"已将用户 {sender_id} 的昵称从 '{original_nickname}' 替换为 '{custom_nickname}'")
+                elif working_mode == "global":
+                    # 全局替换模式：高风险
+                    logger.warning(f"全局替换模式激活：正在修改用户 {sender_id} 的原始请求文本内容。")
+                    
+                    if req.prompt:
+                        req.prompt = req.prompt.replace(original_nickname, custom_nickname)
+                    
+                    # 仅在用户显式开启时才修改历史记录
+                    if self.config.get("enable_session_replace", False):
+                        if hasattr(req, 'session') and req.session:
+                            for msg in req.session:
+                                if hasattr(msg, 'content') and isinstance(msg.content, str):
+                                    msg.content = msg.content.replace(original_nickname, custom_nickname)
+                            logger.debug("历史记录替换已执行")
+                
         except Exception as e:
-            logger.error(f"替换昵称时出错: {e}")
+            logger.error(f"处理昵称时出错: {e}")
+
 
     @filter.command_group("nickname")
     @filter.permission_type(filter.PermissionType.ADMIN)

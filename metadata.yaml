@@ -1,6 +1,6 @@
 name: astrbot_plugin_uni_nickname # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
 display_name: 统一昵称 # 用于展示的名字，可以是方便人类阅读的名字（需要版本 >= v4.5.0，低版本不会报错，请放心填写）
-desc: 让 AI 始终使用管理员设定的昵称称呼群友（群聊和私聊均生效） # 插件简短描述
-version: v1.0.0 # 插件版本号。格式：v1.1.1 或者 v1.1
+desc: 使用管理员配置的映射表统一用户昵称，让AI始终使用管理员设定的昵称称呼用户 # 插件简短描述
+version: v1.0.1 # 插件版本号
 author: Hakuin123 # 作者
 repo: https://github.com/Hakuin123/astrbot_plugin_uni_nickname # 插件的仓库地址
