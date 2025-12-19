@@ -1,0 +1,8 @@
+{
+  "nickname_mappings": {
+    "description": "用户ID与昵称映射表",
+    "type": "list",
+    "default": [],
+    "hint": "每一项格式为：用户ID,昵称（使用半角逗号分隔）。例如：123456789,张三"
+  }
+}
