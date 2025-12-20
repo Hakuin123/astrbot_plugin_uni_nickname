@@ -44,6 +44,7 @@ class UniNicknamePlugin(Star):
         """在LLM请求前根据配置的模式处理昵称（使用内存缓存）"""
         try:
             sender_id = event.get_sender_id()
+            logger.debug(f"[uni_nickname] 收到 LLM 请求拦截，发送者 ID: {sender_id}")
             
             # 直接使用内存缓存，避免每次请求都进行字符串解析
             mappings = self._mappings_cache
@@ -52,12 +53,15 @@ class UniNicknamePlugin(Star):
                 custom_nickname = mappings[sender_id]
                 original_nickname = event.get_sender_name()
                 
+                logger.debug(f"[uni_nickname] 命中映射: {sender_id} -> {custom_nickname} (平台获取到的原始昵称: {original_nickname})")
+                
                 # 安全性检查：如果原始昵称不存在或为空字符串，跳过处理，防止 replace("", "...") 引发 Bug
                 if not original_nickname:
-                    logger.warning(f"无法获取用户 {sender_id} 的原始昵称，跳过映射处理。")
+                    logger.warning(f"[uni_nickname] 无法获取用户 {sender_id} 的原始昵称（Platform Name 为空），跳过映射处理。")
                     return
 
                 working_mode = self.config.get("working_mode", "prompt")
+                logger.debug(f"[uni_nickname] 当前工作模式: {working_mode}")
                 
                 if working_mode == "prompt":
                     # 提示词模式：通过 System Prompt 引导 AI，不修改原始文本
@@ -67,22 +71,37 @@ class UniNicknamePlugin(Star):
                         req.system_prompt += instruction
                     else:
                         req.system_prompt = instruction
-                    logger.debug(f"提示词模式：向 System Prompt 注入昵称引导 ({original_nickname} -> {custom_nickname})")
+                    logger.info(f"[uni_nickname] 提示词模式：向 System Prompt 注入昵称引导 ({original_nickname} -> {custom_nickname})")
                 
                 elif working_mode == "global":
                     # 全局替换模式：高风险
-                    logger.warning(f"全局替换模式：正在修改用户 {sender_id} 的原始请求文本内容。")
+                    logger.info(f"[uni_nickname] 全局替换模式激活：正在处理用户 {sender_id} ({original_nickname}) 的请求内容。")
                     
                     if req.prompt:
+                        old_prompt = req.prompt
                         req.prompt = req.prompt.replace(original_nickname, custom_nickname)
+                        if old_prompt != req.prompt:
+                            logger.info(f"[uni_nickname] 已修改 req.prompt: 替换 '{original_nickname}' 为 '{custom_nickname}'")
+                        else:
+                            logger.debug(f"[uni_nickname] req.prompt 中未发现匹配的原始昵称 '{original_nickname}'")
                     
                     # 仅在用户显式开启时才修改历史记录
                     if self.config.get("enable_session_replace", False):
+                        logger.debug("[uni_nickname] 历史记录替换已开启，开始扫描 session...")
                         if hasattr(req, 'session') and req.session:
-                            for msg in req.session:
+                            replace_count = 0
+                            for i, msg in enumerate(req.session):
                                 if hasattr(msg, 'content') and isinstance(msg.content, str):
-                                    msg.content = msg.content.replace(original_nickname, custom_nickname)
-                            logger.debug("历史记录替换已执行")
+                                    if original_nickname in msg.content:
+                                        msg.content = msg.content.replace(original_nickname, custom_nickname)
+                                        replace_count += 1
+                                        logger.debug(f"[uni_nickname] 已修改历史记录第 {i} 条消息")
+                            logger.info(f"[uni_nickname] 历史记录替换执行完毕，共修改 {replace_count} 条消息。")
+                        else:
+                            logger.debug("[uni_nickname] 未发现可替换的历史记录 (req.session 为空或不存在)")
+                
+            else:
+                logger.debug(f"[uni_nickname] 用户 {sender_id} 不在映射表中，跳过。")
                 
         except Exception as e:
             logger.error(f"处理昵称时出错: {e}")
