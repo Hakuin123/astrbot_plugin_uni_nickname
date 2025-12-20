@@ -40,7 +40,7 @@ class UniNicknamePlugin(Star):
         self._mappings_cache = mappings
 
     @filter.on_llm_request()
-    async def replace_nickname_in_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
+    async def replace_nickname_in_llm_request(self, event: AstrMessageEvent, req: ProviderRequest, *args, **kwargs):
         """在LLM请求前根据配置的模式处理昵称（使用内存缓存）"""
         try:
             sender_id = event.get_sender_id()
@@ -91,11 +91,10 @@ class UniNicknamePlugin(Star):
                         if hasattr(req, 'session') and req.session:
                             replace_count = 0
                             for i, msg in enumerate(req.session):
-                                if hasattr(msg, 'content') and isinstance(msg.content, str):
-                                    if original_nickname in msg.content:
-                                        msg.content = msg.content.replace(original_nickname, custom_nickname)
-                                        replace_count += 1
-                                        logger.debug(f"[uni_nickname] 已修改历史记录第 {i} 条消息")
+                                if hasattr(msg, 'content') and isinstance(msg.content, str) and original_nickname in msg.content:
+                                    msg.content = msg.content.replace(original_nickname, custom_nickname)
+                                    replace_count += 1
+                                    logger.debug(f"[uni_nickname] 已修改历史记录第 {i} 条消息")
                             logger.info(f"[uni_nickname] 历史记录替换执行完毕，共修改 {replace_count} 条消息。")
                         else:
                             logger.debug("[uni_nickname] 未发现可替换的历史记录 (req.session 为空或不存在)")
