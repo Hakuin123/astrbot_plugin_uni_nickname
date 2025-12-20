@@ -4,6 +4,8 @@ AstrBot 插件 - 使用管理员配置的映射表统一用户昵称，让 AI �
 
 ~~因为群友把我可怜的小ai给ntr掉了所以一怒之下丢给Sonnet 4.5写的插件~~
 
+![Moe Counter](https://count.getloli.com/@astrbot_plugin_uni_nickname?name=astrbot_plugin_uni_nickname&theme=capoo-2&padding=7&offset=0&align=top&scale=1&pixelated=1&darkmode=auto)
+
 ## 功能说明
 
 AstrBot 在给 LLM 发送聊天记录时会携带群友的自定义昵称，但是如果群友乱改昵称可能造成 LLM 认错人~~甚至被NTR~~的情况 qwq
