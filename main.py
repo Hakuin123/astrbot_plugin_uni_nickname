@@ -88,13 +88,41 @@ class UniNicknamePlugin(Star):
                         if hasattr(req, 'session') and req.session:
                             replace_count = 0
                             for i, msg in enumerate(req.session):
-                                if hasattr(msg, 'content') and isinstance(msg.content, str) and original_nickname in msg.content:
-                                    msg.content = msg.content.replace(original_nickname, custom_nickname)
-                                    replace_count += 1
-                                    logger.debug(f"[uni_nickname] 已修改历史记录第 {i} 条消息")
-                            logger.info(f"[uni_nickname] 历史记录替换执行完毕，共修改 {replace_count} 条消息。")
+                                if hasattr(msg, 'content') and isinstance(msg.content, str):
+                                    # 首先替换当前发送者的昵称
+                                    if original_nickname in msg.content:
+                                        msg.content = msg.content.replace(original_nickname, custom_nickname)
+                                        replace_count += 1
+                                        logger.debug(f"[uni_nickname] 已修改历史记录第 {i} 条消息（当前发送者）")
                         else:
                             logger.debug("[uni_nickname] 未发现可替换的历史记录 (req.session 为空或不存在)")
+                    
+                    # 替换 contexts 中其他用户的昵称（OpenAI 格式）
+                    if hasattr(req, 'contexts') and req.contexts:
+                        logger.debug("[uni_nickname] 扫描 contexts 中的消息...")
+                        replace_count = 0
+                        for msg in req.contexts:
+                            if isinstance(msg, dict) and 'content' in msg:
+                                content = msg.get('content')
+                                # 首先替换当前发送者的昵称
+                                if isinstance(content, str) and original_nickname in content:
+                                    msg['content'] = content.replace(original_nickname, custom_nickname)
+                                    replace_count += 1
+                                
+                                # 尝试替换历史消息中其他用户的昵称
+                                msg_sender_id = msg.get('sender_id')
+                                msg_sender_name = msg.get('sender_name')
+                                
+                                # 如果能确定消息发送者且在映射表中，进行替换
+                                if msg_sender_id and msg_sender_id != sender_id and msg_sender_id in mappings:
+                                    msg_custom_nickname = mappings[msg_sender_id]
+                                    if msg_sender_name and isinstance(content, str):
+                                        if msg_sender_name in content:
+                                            msg['content'] = content.replace(msg_sender_name, msg_custom_nickname)
+                                            replace_count += 1
+                                            logger.debug(f"[uni_nickname] 已修改 contexts 中的消息（用户: {msg_sender_id}）")
+                        
+                        logger.info(f"[uni_nickname] contexts 替换执行完毕，共修改 {replace_count} 条消息。")
                 
             else:
                 logger.debug(f"[uni_nickname] 用户 {sender_id} 不在映射表中，跳过。")
