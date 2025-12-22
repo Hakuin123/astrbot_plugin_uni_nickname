@@ -6,16 +6,19 @@ AstrBot 插件 - 使用管理员配置的映射表统一用户昵称，让 AI �
 
 ![Moe Counter](https://count.getloli.com/@astrbot_plugin_uni_nickname?name=astrbot_plugin_uni_nickname&theme=capoo-2&padding=7&offset=0&align=top&scale=1&pixelated=1&darkmode=auto)
 
-## 功能说明
+## 说明
 
 AstrBot 在给 LLM 发送聊天记录时会携带群友的自定义昵称，但是如果群友乱改昵称可能造成 LLM 认错人~~甚至被NTR~~的情况 qwq
 此插件可配置映射表，指定用户ID对应的昵称，确保 AI 始终使用设定的昵称来称呼对方（效果横跨群聊和私聊生效）
 
-## 核心特性
+## 功能
 
 - **自动昵称替换**：在每次 LLM 请求前自动替换用户昵称
 - **WebUI 配置**：支持在 AstrBot WebUI 管理面板中配置映射表
 - **管理员指令**：可通过指令管理昵称映射
+
+> [!WARNING]
+已知问题：每个新对话中，映射表中的成员需要主动发送一条消息才会替换当前会话历史聊天记录中的昵称
 
 ## 配置方法
 
@@ -45,33 +48,26 @@ AstrBot 在给 LLM 发送聊天记录时会携带群友的自定义昵称，但�
 /nickname set <用户ID> <昵称>
 ```
 示例：
-```
-/nickname set 123456789 张三
-```
+`/nickname set 123456789 张三`
 
 #### 为自己设置昵称
 ```
 /nickname setme <昵称>
 ```
 示例：
-```
-/nickname setme 管理员
-```
+`/nickname setme 管理员`
 
 #### 删除映射
 ```
 /nickname remove <用户ID>
 ```
 示例：
-```
-/nickname remove 123456789
-```
+`/nickname remove 123456789`
 
 ## 使用示例
 
 假设配置了以下映射：
 - `123456789` → `小明`
-- `987654321` → `小红`
 
 当用户 ID 为 `123456789` 的群友（实际昵称可能是"路人甲"或其他名称）发送消息给 AI 时：
 - 原始消息：`路人甲: 今天天气怎么样？`
@@ -80,22 +76,30 @@ AstrBot 在给 LLM 发送聊天记录时会携带群友的自定义昵称，但�
 
 无论该用户如何修改自己的昵称，AI 始终会称呼其为"小明"
 
-## 工作原理
+## Changelog
+### v1.0.4
+fix: 增强历史记录和上下文中的昵称替换逻辑
+fix: 改回动态加载缓存列表（之前会导致新对话中功能失效问题）
 
-插件使用 `@filter.on_llm_request()` 钩子在每次 LLM 请求前介入：
+## v1.0.3
+fix: 处理偶现的神秘TypeError
 
-1. **匹配身份**：获取发送者 ID，查找映射表。
-2. **模式执行**：
-   - **提示词模式**：插件会在 `ProviderRequest.system_prompt` 中追加一条指令（例如：`Address user 'Will' as 'Boss'`）。这样即便用户的名字本身是常用词汇，也不会发生错误的单词替换。
-   - **全局模式**：通过 Python 的 `replace` 方法直接修改 `req.prompt` 中的文本。如果开启了 `enable_session_replace`，还会改写 `req.session` 中的历史片段。
+### v1.0.2
+feat: 实现并集成映射表缓存机制
+chore：规范prompt模式命名
 
+### v1.0.1
+feat: 新增提示词注入模式与全局替换模式切换
+
+### v1.0.0
+基本功能实现
 
 ## 注意事项
 
 - 插件仅对管理员开放昵称管理指令
 - 昵称映射仅影响发送给 LLM 的消息，不影响消息平台显示的昵称
 - 用户 ID 是消息平台的唯一标识（如 QQ 号、Telegram ID 等）
-- 昵称中如需使用半角逗号，请避免歧义（插件会按第一个逗号分割）
+- 昵称中**如需使用半角逗号，请避免歧义**（插件会按第一个逗号分割）
 
 ## 致谢
 - 灵感来源：@柠檬老师 ~~就是他把我小ai牛走的~~ ~~挂人说是~~
