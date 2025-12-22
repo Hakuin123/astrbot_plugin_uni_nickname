@@ -9,8 +9,7 @@ class UniNicknamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
-        self._mappings_cache = self._parse_mappings()
-        logger.info("统一昵称插件已加载，缓存已初始化")
+        logger.info("统一昵称插件已加载")
 
     def _parse_mappings(self) -> dict:
         """解析配置中的昵称映射列表，返回 {用户ID: 昵称} 字典"""
@@ -32,22 +31,20 @@ class UniNicknamePlugin(Star):
         return mappings
 
     def _save_mappings(self, mappings: dict):
-        """将映射字典保存到配置文件并更新缓存"""
+        """将映射字典保存到配置文件"""
         mapping_list = [f"{user_id},{nickname}" for user_id, nickname in mappings.items()]
         self.config["nickname_mappings"] = mapping_list
         self.config.save_config()
-        # 同步更新内存缓存，确保下一次 LLM 请求立即生效
-        self._mappings_cache = mappings
 
     @filter.on_llm_request()
     async def replace_nickname_in_llm_request(self, event: AstrMessageEvent, req: ProviderRequest, *args, **kwargs):
-        """在LLM请求前根据配置的模式处理昵称（使用内存缓存）"""
+        """在LLM请求前根据配置的模式处理昵称（每次请求都重新读取最新配置）"""
         try:
             sender_id = event.get_sender_id()
             logger.debug(f"[uni_nickname] 收到 LLM 请求拦截，发送者 ID: {sender_id}")
             
-            # 直接使用内存缓存，避免每次请求都进行字符串解析
-            mappings = self._mappings_cache
+            # 每次请求都从最新配置读取，确保修改后立即生效
+            mappings = self._parse_mappings()
             
             if sender_id in mappings:
                 custom_nickname = mappings[sender_id]
