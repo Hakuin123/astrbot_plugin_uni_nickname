@@ -10,7 +10,10 @@ class UniNicknamePlugin(Star):
         super().__init__(context)
         self.config = config
         self._mappings_cache = self._parse_mappings()
-        logger.info("统一昵称插件已加载，缓存已初始化")
+        # 运行时缓存：用户ID -> 原始平台昵称
+        # 用于在历史记录中替换所有已知用户的昵称
+        self._original_nickname_cache: dict[str, str] = {}
+        logger.info("[DEV] 统一昵称插件已加载，缓存已初始化")
 
     def _parse_mappings(self) -> dict:
         """解析配置中的昵称映射列表，返回 {用户ID: 昵称} 字典"""
@@ -44,14 +47,23 @@ class UniNicknamePlugin(Star):
         """在LLM请求前根据配置的模式处理昵称（使用内存缓存）"""
         try:
             sender_id = event.get_sender_id()
+            original_nickname = event.get_sender_name()
             logger.info(f"[uni_nickname] 收到 LLM 请求拦截，发送者 ID: {sender_id}")
             
             # 直接使用内存缓存，避免每次请求都进行字符串解析
             mappings = self._mappings_cache
             
+            # 更新原始昵称缓存（无论是否在映射表中）
+            # 用于后续在历史记录中替换所有已知用户的昵称
+            if sender_id in mappings and original_nickname:
+                cached_original = self._original_nickname_cache.get(sender_id)
+                if cached_original != original_nickname:
+                    if cached_original:
+                        logger.info(f"[uni_nickname] 检测到用户 {sender_id} 原始昵称变更: '{cached_original}' -> '{original_nickname}'，刷新缓存")
+                    self._original_nickname_cache[sender_id] = original_nickname
+            
             if sender_id in mappings:
                 custom_nickname = mappings[sender_id]
-                original_nickname = event.get_sender_name()
                 
                 logger.info(f"[uni_nickname] 命中映射: {sender_id} -> {custom_nickname} (平台获取到的原始昵称: {original_nickname})")
                 
@@ -77,27 +89,14 @@ class UniNicknamePlugin(Star):
                     # 全局替换模式：高风险
                     logger.info(f"[uni_nickname] 全局替换模式激活：正在处理用户 {sender_id} ({original_nickname}) 的请求内容。")
                     
+                    # 在 prompt 中替换所有已知用户的昵称（包括历史记录中的）
+                    # 注意：历史记录通常被格式化进 req.prompt 中，所以需要在 prompt 级别替换
                     if req.prompt:
-                        old_prompt = req.prompt
-                        req.prompt = req.prompt.replace(original_nickname, custom_nickname)
-                        if old_prompt != req.prompt:
-                            logger.info(f"[uni_nickname] 已修改 req.prompt: 替换 '{original_nickname}' 为 '{custom_nickname}'")
-                        else:
-                            logger.info(f"[uni_nickname] req.prompt 中未发现匹配的原始昵称 '{original_nickname}'")
+                        self._replace_all_nicknames_in_prompt(req, mappings)
                     
-                    # 仅在用户显式开启时才修改历史记录
+                    # 仅在用户显式开启时才修改历史记录 (req.contexts)
                     if self.config.get("enable_session_replace", False):
-                        logger.info("[uni_nickname] 历史记录替换已开启，开始扫描 session...")
-                        if hasattr(req, 'session') and req.session:
-                            replace_count = 0
-                            for i, msg in enumerate(req.session):
-                                if hasattr(msg, 'content') and isinstance(msg.content, str) and original_nickname in msg.content:
-                                    msg.content = msg.content.replace(original_nickname, custom_nickname)
-                                    replace_count += 1
-                                    logger.info(f"[uni_nickname] 已修改历史记录第 {i} 条消息")
-                            logger.info(f"[uni_nickname] 历史记录替换执行完毕，共修改 {replace_count} 条消息。")
-                        else:
-                            logger.info("[uni_nickname] 未发现可替换的历史记录 (req.session 为空或不存在)")
+                        self._replace_nicknames_in_contexts(req, mappings)
                 
             else:
                 logger.info(f"[uni_nickname] 用户 {sender_id} 不在映射表中，跳过。")
@@ -105,6 +104,96 @@ class UniNicknamePlugin(Star):
         except Exception as e:
             logger.error(f"处理昵称时出错: {e}")
 
+    def _replace_all_nicknames_in_prompt(self, req: ProviderRequest, mappings: dict):
+        """在 req.prompt 中替换所有已知用户的昵称（包括历史记录中的）"""
+        # 构建替换映射：原始昵称 -> 自定义昵称
+        replace_map: dict[str, str] = {}
+        for user_id, custom_nickname in mappings.items():
+            original_nickname = self._original_nickname_cache.get(user_id)
+            if original_nickname and original_nickname != custom_nickname:
+                replace_map[original_nickname] = custom_nickname
+        
+        if not replace_map:
+            logger.info("[uni_nickname] 原始昵称缓存为空，暂无可替换的昵称映射（用户需先发送过消息）")
+            return
+        
+        logger.info(f"[uni_nickname] 准备在 prompt 中替换以下昵称: {replace_map}")
+        
+        old_prompt = req.prompt
+        new_prompt = req.prompt
+        replaced_pairs = []
+        
+        for orig_nick, custom_nick in replace_map.items():
+            if orig_nick in new_prompt:
+                new_prompt = new_prompt.replace(orig_nick, custom_nick)
+                replaced_pairs.append(f"'{orig_nick}' -> '{custom_nick}'")
+        
+        if new_prompt != old_prompt:
+            req.prompt = new_prompt
+            logger.info(f"[uni_nickname] 已修改 req.prompt，替换了: {', '.join(replaced_pairs)}")
+        else:
+            logger.info("[uni_nickname] req.prompt 中未发现可替换的原始昵称")
+
+    def _replace_nicknames_in_contexts(self, req: ProviderRequest, mappings: dict):
+        """在历史记录 (req.contexts) 中替换所有已知用户的昵称"""
+        logger.info("[uni_nickname] 历史记录替换已开启，开始扫描 contexts...")
+        
+        if not hasattr(req, 'contexts') or not req.contexts:
+            logger.info("[uni_nickname] 未发现可替换的历史记录 (req.contexts 为空或不存在)")
+            return
+        
+        # 构建替换映射：原始昵称 -> 自定义昵称
+        # 只替换已知的原始昵称（已在缓存中记录过的用户）
+        replace_map: dict[str, str] = {}
+        for user_id, custom_nickname in mappings.items():
+            original_nickname = self._original_nickname_cache.get(user_id)
+            if original_nickname and original_nickname != custom_nickname:
+                replace_map[original_nickname] = custom_nickname
+        
+        if not replace_map:
+            logger.info("[uni_nickname] 原始昵称缓存为空，暂无可替换的昵称映射（用户需先发送过消息）")
+            return
+        
+        logger.info(f"[uni_nickname] 准备替换以下昵称映射: {replace_map}")
+        
+        replace_count = 0
+        for i, ctx in enumerate(req.contexts):
+            if not isinstance(ctx, dict):
+                continue
+            
+            content = ctx.get("content")
+            if content is None:
+                continue
+            
+            # 处理字符串类型的 content
+            if isinstance(content, str):
+                new_content = content
+                for orig_nick, custom_nick in replace_map.items():
+                    if orig_nick in new_content:
+                        new_content = new_content.replace(orig_nick, custom_nick)
+                if new_content != content:
+                    ctx["content"] = new_content
+                    replace_count += 1
+                    logger.info(f"[uni_nickname] 已修改历史记录第 {i} 条消息")
+            
+            # 处理列表类型的 content（多模态消息）
+            elif isinstance(content, list):
+                modified = False
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text = item.get("text", "")
+                        new_text = text
+                        for orig_nick, custom_nick in replace_map.items():
+                            if orig_nick in new_text:
+                                new_text = new_text.replace(orig_nick, custom_nick)
+                        if new_text != text:
+                            item["text"] = new_text
+                            modified = True
+                if modified:
+                    replace_count += 1
+                    logger.info(f"[uni_nickname] 已修改历史记录第 {i} 条多模态消息")
+        
+        logger.info(f"[uni_nickname] 历史记录替换执行完毕，共修改 {replace_count} 条消息。")
 
     @filter.command_group("nickname")
     @filter.permission_type(filter.PermissionType.ADMIN)
