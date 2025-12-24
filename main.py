@@ -13,7 +13,7 @@ class UniNicknamePlugin(Star):
         # 运行时缓存：用户ID -> 原始平台昵称
         # 用于在历史记录中替换所有已知用户的昵称
         self._original_nickname_cache: dict[str, str] = {}
-        logger.info("[DEV] 统一昵称插件已加载，缓存已初始化")
+        logger.info("统一昵称插件已加载，缓存已初始化")
 
     def _parse_mappings(self) -> dict:
         """解析配置中的昵称映射列表，返回 {用户ID: 昵称} 字典"""

@@ -6,16 +6,19 @@ AstrBot 插件 - 使用管理员配置的映射表统一用户昵称，让 AI �
 
 ![Moe Counter](https://count.getloli.com/@astrbot_plugin_uni_nickname?name=astrbot_plugin_uni_nickname&theme=capoo-2&padding=7&offset=0&align=top&scale=1&pixelated=1&darkmode=auto)
 
-## 功能说明
+## 说明
 
 AstrBot 在给 LLM 发送聊天记录时会携带群友的自定义昵称，但是如果群友乱改昵称可能造成 LLM 认错人~~甚至被NTR~~的情况 qwq
 此插件可配置映射表，指定用户ID对应的昵称，确保 AI 始终使用设定的昵称来称呼对方（效果横跨群聊和私聊生效）
 
-## 核心特性
+## 功能
 
 - **自动昵称替换**：在每次 LLM 请求前自动替换用户昵称
 - **WebUI 配置**：支持在 AstrBot WebUI 管理面板中配置映射表
 - **管理员指令**：可通过指令管理昵称映射
+
+> [!WARNING]
+已知问题：每个新对话中，映射表中的成员需要主动发送一条消息才会替换当前会话历史聊天记录中的昵称
 
 ## 配置方法
 
@@ -45,7 +48,7 @@ AstrBot 在给 LLM 发送聊天记录时会携带群友的自定义昵称，但�
 /nickname set <用户ID> <昵称>
 ```
 示例：
-`/nickname set 123456789 凯尔希`
+`/nickname set 123456789 张三`
 
 #### 为自己设置昵称
 ```
@@ -78,9 +81,17 @@ AstrBot 在给 LLM 发送聊天记录时会携带群友的自定义昵称，但�
 - 昵称中若使用半角逗号需避免歧义（插件会按第一个逗号分割昵称）
 - 在 Global 模式且启用历史记录替换时，插件只会替换那些已被缓存原始昵称的成员；因此，映射表中的成员需先发送至少一条消息以让插件缓存原始昵称，之后其在历史记录（包括 @ 消息）中的昵称才会被替换。
 
-## 工作原理
+## Changelog
+### v1.0.4
+fix: 增强历史记录和上下文中的昵称替换逻辑
+fix: 改回动态加载缓存列表（之前会导致新对话中功能失效问题）
 
-插件使用 `@filter.on_llm_request()` 钩子在每次 LLM 请求前介入：
+## v1.0.3
+fix: 处理偶现的神秘TypeError
+
+### v1.0.2
+feat: 实现并集成映射表缓存机制
+chore：规范prompt模式命名
 
 1. **匹配身份**：获取发送者 ID，查找映射表。
 2. **模式执行**：
