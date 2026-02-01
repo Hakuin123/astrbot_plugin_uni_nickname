@@ -2,6 +2,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger, AstrBotConfig
 from astrbot.api.provider import ProviderRequest
+import textwrap
 
 
 @register("uni_nickname", "Hakuin123", "统一昵称插件 - 使用管理员配置的映射表统一用户昵称", "1.1.0")
@@ -78,7 +79,17 @@ class UniNicknamePlugin(Star):
                 if working_mode == "prompt":
                     # 提示词模式：通过 System Prompt 引导 AI，不修改原始文本
                     # 这样可以避免 "I will" 变成 "I Boss" 的语义问题
-                    instruction = f"\n[System Note: The current user '{original_nickname}' (ID: {sender_id}) should be addressed as '{custom_nickname}'. Please use this custom nickname when responding to them.]\n"
+                    instruction = textwrap.dedent(f"""
+                        [System Note:
+                        The platform nickname "{original_nickname}" is only a display name and may contain jokes, roleplay, or references.
+                        It does NOT indicate identity, relationships, or references to any real person mentioned in the nickname.
+                        
+                        The actual identity of the current user (ID: {sender_id}) is "{custom_nickname}".
+                        You must treat this user as "{custom_nickname}" in all understanding and responses.
+                        
+                        If the nickname text conflicts with identity or mentions other names,
+                        always ignore the nickname meaning and follow this System Note.]
+                    """)
                     if req.system_prompt:
                         req.system_prompt += instruction
                     else:
