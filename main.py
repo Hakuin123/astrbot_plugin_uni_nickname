@@ -16,6 +16,13 @@ class UniNicknamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
+        
+        # 兼容老版本配置：将旧的 "global" 模式自动升级为 "global_replace"
+        if self.config.get("working_mode") == "global":
+            self.config["working_mode"] = "global_replace"
+            self.config.save_config()
+            logger.info("已将旧版 'global' 配置自动迁移至 'global_replace'")
+            
         self._mappings_cache = self._parse_mappings()
         # 运行时缓存：用户ID -> 原始平台昵称
         # 用于在历史记录中替换所有已知用户的昵称
