@@ -125,33 +125,36 @@ class UniNicknamePlugin(Star):
         """测试用，输出当前用户看到的完整输入（合并 prompt、contexts 中的用户消息、extra_user_content_parts）"""
         try:
             all_texts = []
-            
+
             # 从 prompt 添加
             if req.prompt:
                 all_texts.append(req.prompt)
-            
+
             # 从 contexts 添加最后一条用户消息
             if hasattr(req, 'contexts') and req.contexts:
                 for ctx in reversed(req.contexts):
                     if isinstance(ctx, dict) and ctx.get("role") == "user":
-                        content = ctx.get("content")
-                        if content:
+                        if content := ctx.get("content"):
                             if isinstance(content, str):
                                 all_texts.append(content)
                             elif isinstance(content, list):
-                                for item in content:
-                                    if isinstance(item, dict) and item.get("type") == "text":
-                                        all_texts.append(item.get("text", ""))
+                                all_texts.extend(
+                                    item.get("text", "")
+                                    for item in content
+                                    if isinstance(item, dict)
+                                    and item.get("type") == "text"
+                                )
                             else:
                                 all_texts.append(str(content))
                         break  # 只取最后一条用户消息
-            
+
             # 从 extra_user_content_parts 添加
             if hasattr(req, 'extra_user_content_parts') and req.extra_user_content_parts:
-                for part in req.extra_user_content_parts:
-                    if hasattr(part, 'text') and part.text:
-                        all_texts.append(part.text)
-            
+                all_texts.extend(
+                    part.text
+                    for part in req.extra_user_content_parts
+                    if hasattr(part, 'text') and part.text
+                )
             if all_texts:
                 combined = "\n".join(all_texts)
                 logger.info(f"[uni_nickname] 当前用户完整输入 (组合): {combined}")
@@ -183,13 +186,13 @@ class UniNicknamePlugin(Star):
             if sender_id in mappings:
                 custom_nickname = mappings[sender_id]
                 logger.info(f"[uni_nickname] 命中映射: {sender_id} -> {custom_nickname} (平台获取到的原始昵称: {original_nickname})")
-                
+
                 # 安全性检查：如果原始昵称不存在或为空字符串，跳过处理，防止 replace("", "...") 引发 Bug
                 if not original_nickname:
                     logger.warning(f"[uni_nickname] 无法获取用户 {sender_id} 的原始昵称（Platform Name 为空），跳过映射处理。")
                     return
 
-                working_mode = self.config.get("working_mode", "prompt")
+                working_mode = self.config.get("working_mode", "system_replace")
                 logger.debug(f"[uni_nickname] 当前工作模式: {working_mode}")
 
                 if working_mode == "prompt":
@@ -212,53 +215,49 @@ class UniNicknamePlugin(Star):
                         req.system_prompt = instruction
                     logger.debug(f"[uni_nickname] 提示词模式：向 System Prompt 注入昵称引导 ({original_nickname} -> {custom_nickname})")
 
-                elif working_mode == "global":
-                    logger.debug(f"[uni_nickname] 全局替换模式激活")
+                elif working_mode == "system_replace":
+                    logger.debug("[uni_nickname] 系统标签替换模式激活")
+                    # 仅替换系统标签
+                    if hasattr(req, 'extra_user_content_parts') and req.extra_user_content_parts:
+                        for part in req.extra_user_content_parts:
+                            self._smart_replace_in_textpart(part, mappings)
+                    if req.prompt:
+                        req.prompt = self._smart_replace_in_text(req.prompt, mappings)
 
-                    smart = self.config.get("smart_replace", False)
+                elif working_mode == "global_replace":
+                    logger.debug("[uni_nickname] 全局替换模式激活")
                     enable_session = self.config.get("enable_session_replace", False)
 
                     # 构建传统替换映射
-                    # 原_replace_all_nicknames_in_prompt函数现在此处
                     replace_map: dict[str, str] = {}
                     for uid, custom_nick in mappings.items():
                         orig_nick = self._original_nickname_cache.get(uid)
                         if orig_nick and orig_nick != custom_nick:
                             replace_map[orig_nick] = custom_nick
 
-                    # 1. 处理 extra_user_content_parts (包含 system_reminder)
+                    # 1. 处理 extra_user_content_parts
                     if hasattr(req, 'extra_user_content_parts') and req.extra_user_content_parts:
                         for part in req.extra_user_content_parts:
-                            if smart:
-                                self._smart_replace_in_textpart(part, mappings)
-                            else:
-                                self._replace_all_in_textpart(part, replace_map)
+                            self._replace_all_in_textpart(part, replace_map)
 
                     # 2. 处理 req.prompt
-                    if smart:
-                        if req.prompt:
-                            req.prompt = self._smart_replace_in_text(req.prompt, mappings)
-                    else:
-                        if req.prompt and replace_map:
-                            new_prompt = req.prompt
-                            replaced_pairs = []
-                            for orig_nick, custom_nick in replace_map.items():
-                                if orig_nick in new_prompt:
-                                    new_prompt = new_prompt.replace(orig_nick, custom_nick)
-                                    replaced_pairs.append(f"'{orig_nick}' -> '{custom_nick}'")
-                            if new_prompt != req.prompt:
-                                req.prompt = new_prompt
-                                logger.info(f"[uni_nickname] 已修改 req.prompt，替换了: {', '.join(replaced_pairs)}")
+                    if req.prompt and replace_map:
+                        new_prompt = req.prompt
+                        replaced_pairs = []
+                        for orig_nick, custom_nick in replace_map.items():
+                            if orig_nick in new_prompt:
+                                new_prompt = new_prompt.replace(orig_nick, custom_nick)
+                                replaced_pairs.append(f"'{orig_nick}' -> '{custom_nick}'")
+                        if new_prompt != req.prompt:
+                            req.prompt = new_prompt
+                            logger.info(f"[uni_nickname] 已修改 req.prompt，替换了: {', '.join(replaced_pairs)}")
 
                     # 3. 处理 contexts
                     if enable_session and hasattr(req, 'contexts') and req.contexts:
-                        if smart:
-                            self._smart_replace_in_contexts(req.contexts, mappings)
-                        else:
-                            self._replace_nicknames_in_contexts(req, replace_map)
+                        self._replace_nicknames_in_contexts(req, replace_map)
 
-                    # 测试用，输出完整输入日志
-                    #self._log_current_user_prompt(req)
+                                # 测试用，输出完整输入日志
+                                # self._log_current_user_prompt(req)
 
             else:
                 logger.debug(f"[uni_nickname] 用户 {sender_id} 不在映射表中，跳过。")
