@@ -10,7 +10,7 @@ import textwrap
     "uni_nickname",
     "Hakuin123",
     "统一昵称插件 - 使用管理员配置的映射表统一用户昵称",
-    "1.2.0",
+    "1.2.1",
 )
 class UniNicknamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -65,7 +65,7 @@ class UniNicknamePlugin(Star):
         # 捕获组1: 从 <system_reminder> 到 "Nickname: " 之前的部分
         # 捕获组2: 用户ID
         # 捕获组3: 原始的 Nickname 值（将被替换）
-        pattern = r"(<system_reminder>.*?User ID:\s*(\d+),\s*Nickname:\s*)([^\n]+)"
+        pattern = r"(<system_reminder>.*?User ID:\s*([^,\n]+),\s*Nickname:\s*)([^\n]+)"
 
         def replacer(match):
             prefix = match.group(1)  # 包括 <system_reminder>...User ID: xxx, Nickname:
@@ -85,26 +85,71 @@ class UniNicknamePlugin(Star):
 
     def _smart_replace_in_textpart(self, part, mappings: dict) -> bool:
         """对 TextPart 对象应用智能替换，返回是否修改"""
-        if not hasattr(part, "text") or not isinstance(part.text, str):
+        text = self._get_textpart_text(part)
+        if text is None:
             return False
-        new_text = self._smart_replace_in_text(part.text, mappings)
-        if new_text != part.text:
-            part.text = new_text
+        new_text = self._smart_replace_in_text(text, mappings)
+        if new_text != text:
+            self._set_textpart_text(part, new_text)
             return True
         return False
 
     def _replace_all_in_textpart(self, part, replace_map: dict) -> bool:
         """对 TextPart 对象应用全局替换，返回是否修改"""
-        if not hasattr(part, "text") or not isinstance(part.text, str):
+        text = self._get_textpart_text(part)
+        if text is None:
             return False
-        new_text = part.text
+        new_text = text
         for orig, custom in replace_map.items():
             if orig in new_text:
                 new_text = new_text.replace(orig, custom)
-        if new_text != part.text:
-            part.text = new_text
+        if new_text != text:
+            self._set_textpart_text(part, new_text)
             return True
         return False
+
+    def _get_textpart_text(self, part) -> str | None:
+        """兼容 AstrBot 的 TextPart 对象和字典格式的文本块。"""
+        if hasattr(part, "text") and isinstance(part.text, str):
+            return part.text
+        if isinstance(part, dict) and part.get("type") == "text":
+            text = part.get("text")
+            if isinstance(text, str):
+                return text
+        return None
+
+    def _set_textpart_text(self, part, text: str) -> bool:
+        """更新文本块内容，兼容对象和字典格式。"""
+        if hasattr(part, "text") and isinstance(getattr(part, "text", None), str):
+            part.text = text
+            return True
+        if isinstance(part, dict) and part.get("type") == "text":
+            part["text"] = text
+            return True
+        return False
+
+    def _request_has_identity_reminder(self, req: ProviderRequest, user_id: str) -> bool:
+        """检查请求中是否已有当前用户的身份提醒。"""
+        pattern = re.compile(
+            rf"<system_reminder>.*?User ID:\s*{re.escape(user_id)}\s*,\s*Nickname:\s*",
+            flags=re.IGNORECASE,
+        )
+
+        if req.prompt and pattern.search(req.prompt):
+            return True
+
+        if hasattr(req, "extra_user_content_parts") and req.extra_user_content_parts:
+            for part in req.extra_user_content_parts:
+                text = self._get_textpart_text(part)
+                if text and pattern.search(text):
+                    return True
+        return False
+
+    def _warn_identifier_not_enabled(self):
+        """提示用户检查 AstrBot 的用户识别配置。"""
+        logger.warning(
+            "[uni_nickname] 未检测到 <system_reminder> 身份标签。请检查 AstrBot 设置中是否已开启用户识别（provider_settings.identifier）。"
+        )
 
     def _smart_replace_in_contexts(self, contexts: list, mappings: dict):
         """遍历 contexts，对每条消息的内容应用智能替换"""
@@ -216,12 +261,11 @@ class UniNicknamePlugin(Star):
                     f"[uni_nickname] 命中映射: {sender_id} -> {custom_nickname} (平台获取到的原始昵称: {original_nickname})"
                 )
 
-                # 安全性检查：如果原始昵称不存在或为空字符串，跳过处理，防止 replace("", "...") 引发 Bug
+                # 平台昵称可能为空（部分平台/场景常见），此时仅告警，不终止后续模式处理。
                 if not original_nickname:
                     logger.warning(
-                        f"[uni_nickname] 无法获取用户 {sender_id} 的原始昵称（Platform Name 为空），跳过映射处理。"
+                        f"[uni_nickname] 无法获取用户 {sender_id} 的原始昵称（Platform Name 为空），将继续执行可用的映射逻辑。"
                     )
-                    return
 
                 working_mode = self.config.get("working_mode", "system_replace")
                 logger.debug(f"[uni_nickname] 当前工作模式: {working_mode}")
@@ -250,6 +294,9 @@ class UniNicknamePlugin(Star):
 
                 elif working_mode == "system_replace":
                     logger.debug("[uni_nickname] 系统标签替换模式激活")
+                    if not self._request_has_identity_reminder(req, sender_id):
+                        self._warn_identifier_not_enabled()
+                        return
                     # 仅替换系统标签
                     if (
                         hasattr(req, "extra_user_content_parts")
@@ -262,6 +309,8 @@ class UniNicknamePlugin(Star):
 
                 elif working_mode == "global_replace":
                     logger.debug("[uni_nickname] 全局替换模式激活")
+                    if not self._request_has_identity_reminder(req, sender_id):
+                        self._warn_identifier_not_enabled()
                     enable_session = self.config.get("enable_session_replace", False)
 
                     # 构建传统替换映射
@@ -301,6 +350,7 @@ class UniNicknamePlugin(Star):
 
                         # 测试用，输出完整输入日志
                         # self._log_current_user_prompt(req)
+
 
             else:
                 logger.debug(f"[uni_nickname] 用户 {sender_id} 不在映射表中，跳过。")
