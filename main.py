@@ -59,18 +59,16 @@ class UniNicknamePlugin(Star):
     def _system_replace_in_text(self, text: str, mappings: dict) -> str:
         """
         智能替换：只替换形如 <system_reminder>...User ID: 123, Nickname: 原始名 中的原始名
-        如果该用户ID在 mappings 中，则将 Nickname 替换为自定义昵称
         """
         # 匹配模式：
-        # 捕获组1: 从 <system_reminder> 到 "Nickname: " 之前的部分
-        # 捕获组2: 用户ID
-        # 捕获组3: 原始的 Nickname 值（将被替换）
-        pattern = r"(<system_reminder>.*?User ID:\s*([^,\n]+),\s*Nickname:\s*)([^\n]+)"
+        # 修改点：将 Nickname:\s* 改为 Nickname:[ \t]*，防止吞掉紧跟的换行符
+        pattern = r"(<system_reminder>.*?User ID:\s*([^,\n]+),\s*Nickname:[ \t]*)([^\n<]*)"
 
         def replacer(match):
-            prefix = match.group(1)  # 包括 <system_reminder>...User ID: xxx, Nickname:
-            user_id = match.group(2)  # 用户ID
-            original_nick = match.group(3)  # 原始昵称
+            prefix = match.group(1)
+            user_id = match.group(2).strip()
+            original_nick = match.group(3)
+            
             if user_id in mappings:
                 custom_nick = mappings[user_id]
                 if custom_nick != original_nick:
@@ -79,9 +77,9 @@ class UniNicknamePlugin(Star):
                     )
                 return prefix + custom_nick
             else:
-                return match.group(0)  # 不替换
+                return match.group(0)
 
-        return re.sub(pattern, replacer, text, flags=re.IGNORECASE)
+        return re.sub(pattern, replacer, text, flags=re.IGNORECASE | re.DOTALL)
 
     def _system_replace_in_textpart(self, part, mappings: dict) -> bool:
         """对 TextPart 对象应用智能替换，返回是否修改"""
