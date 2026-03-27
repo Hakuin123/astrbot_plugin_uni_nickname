@@ -4,6 +4,15 @@
 
 ## 最新版本
 
+## v1.2.2
+
+fix: 优化 system_replace 中的文本替换规则，适配部分无法检测用户原昵称的平台 ([#7](https://github.com/Hakuin123/astrbot_plugin_uni_nickname/pull/7), Thanks to **[@olozhika](https://github.com/olozhika)**!)
+
+
+---
+
+## 历史更新记录
+
 ### v1.2.1
 
 fix: `system_replace` 兼容非纯数字用户 ID 避免匹配失败
@@ -14,11 +23,9 @@ change: 未检测到 `<system_reminder>` 时`system_replace` 将停止工作；`
 
 refactor: 重命名 smart_replace 为 system_replace
 
-## 历史更新记录
-
 ### v1.2.0
 
-feat: 增加 system_replace 模式，当开启时仅替换系统提醒中的昵称，不替换用户消息中的昵称 (#3)（Thanks to **[@olozhika](https://github.com/olozhika)**！）
+feat: 增加 system_replace 模式，当开启时仅替换系统提醒中的昵称，不替换用户消息中的昵称 ([#3](https://github.com/Hakuin123/astrbot_plugin_uni_nickname/pull/3), Thanks to **[@olozhika](https://github.com/olozhika)**!)
 
 feat: 自动迁移旧版本配置
 
@@ -26,7 +33,7 @@ docs: 新增 CHANGELOG.md
 
 ### v1.1.1
 
-feat: 修改了更强硬的提示词，也许可以缓解提示词模式下认错“群昵称强烈指向别人名字”的成员的问题（Thanks to **[@NickWoluff](https://github.com/NickWoluff)**！）
+feat: 修改了更强硬的提示词，也许可以缓解提示词模式下认错“群昵称强烈指向别人名字”的成员的问题 ([#2](https://github.com/Hakuin123/astrbot_plugin_uni_nickname/pull/2), Thanks to **[@NickWoluff](https://github.com/NickWoluff)**!)
 
 debug: 将部分日志级别从 info更改为 debug，以减少日志输出
 
