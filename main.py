@@ -23,13 +23,13 @@ class UniNicknamePlugin(Star):
         if self.config.get("working_mode") == "global":
             self.config["working_mode"] = "global_replace"
             self.config.save_config()
-            logger.info("已将旧版 'global' 配置自动迁移至 'global_replace'")
+            logger.info("[uni_nickname] 已将旧版 'global' 配置自动迁移至 'global_replace'")
 
         self._mappings_cache = self._parse_mappings()
         # 运行时缓存：用户ID -> 原始平台昵称
         # 用于在历史记录中替换所有已知用户的昵称
         self._original_nickname_cache: dict[str, str] = {}
-        logger.info("统一昵称插件已加载，缓存已初始化")
+        logger.info("[uni_nickname] 统一昵称插件已加载，缓存已初始化")
 
     def _parse_mappings(self) -> dict:
         """解析配置中的昵称映射列表，返回 {用户ID: 昵称} 字典"""
@@ -142,7 +142,7 @@ class UniNicknamePlugin(Star):
 
     def _system_replace_in_text(self, text: str, mappings: dict) -> str:
         """
-        智能替换：只替换形如 <system_reminder>...User ID: 123, Nickname: 原始名 中的原始名
+        system_replace：只替换形如 <system_reminder>...User ID: 123, Nickname: 原始名 中的原始名
         """
         # 匹配模式：
         # 修改点：将 Nickname:\s* 改为 Nickname:[ \t]*，防止吞掉紧跟的换行符
@@ -159,7 +159,7 @@ class UniNicknamePlugin(Star):
                 custom_nick = mappings[user_id]
                 if custom_nick != original_nick:
                     logger.debug(
-                        f"[uni_nickname] 智能替换：用户 {user_id} 的 Nickname 从 '{original_nick}' 替换为 '{custom_nick}'"
+                        f"[uni_nickname] system_replace：用户 {user_id} 的 Nickname 从 '{original_nick}' 替换为 '{custom_nick}'"
                     )
                 return prefix + custom_nick
             else:
@@ -168,7 +168,7 @@ class UniNicknamePlugin(Star):
         return re.sub(pattern, replacer, text, flags=re.IGNORECASE | re.DOTALL)
 
     def _system_replace_in_textpart(self, part, mappings: dict) -> bool:
-        """对 TextPart 对象应用智能替换，返回是否修改"""
+        """对 TextPart 对象应用 system_replace，返回是否修改"""
         text = self._get_textpart_text(part)
         if text is None:
             return False
@@ -179,7 +179,7 @@ class UniNicknamePlugin(Star):
         return False
 
     def _replace_all_in_textpart(self, part, replace_map: dict) -> bool:
-        """对 TextPart 对象应用全局替换，返回是否修改"""
+        """对 TextPart 对象应用 global_replace，返回是否修改"""
         text = self._get_textpart_text(part)
         if text is None:
             return False
@@ -238,7 +238,7 @@ class UniNicknamePlugin(Star):
         )
 
     def _system_replace_in_contexts(self, contexts: list, mappings: dict):
-        """遍历 contexts，对每条消息的内容应用智能替换"""
+        """遍历 contexts，对每条消息的内容应用 system_replace"""
         if not contexts:
             return
         replace_count = 0
@@ -253,7 +253,9 @@ class UniNicknamePlugin(Star):
                 if new_content != content:
                     ctx["content"] = new_content
                     replace_count += 1
-                    logger.debug(f"[uni_nickname] 已智能替换历史记录第 {i} 条消息")
+                    logger.debug(
+                        f"[uni_nickname] system_replace: 已替换历史记录第 {i} 条消息"
+                    )
             elif isinstance(content, list):
                 modified = False
                 for item in content:
@@ -266,10 +268,10 @@ class UniNicknamePlugin(Star):
                 if modified:
                     replace_count += 1
                     logger.debug(
-                        f"[uni_nickname] 已智能替换历史记录第 {i} 条多模态消息"
+                        f"[uni_nickname] system_replace: 已替换历史记录第 {i} 条多模态消息"
                     )
         logger.info(
-            f"[uni_nickname] 智能替换历史记录执行完毕，共修改 {replace_count} 条消息"
+            f"[uni_nickname] system_replace: 替换历史记录执行完毕，共修改 {replace_count} 条消息"
         )
 
     def _log_current_user_prompt(self, req: ProviderRequest):
@@ -449,7 +451,7 @@ class UniNicknamePlugin(Star):
                 logger.debug(f"[uni_nickname] 用户 {sender_id} 不在映射表中，跳过")
 
         except Exception as e:
-            logger.error(f"处理昵称时出错: {e}")
+            logger.error(f"[uni_nickname] 处理昵称时出错: {e}")
 
     def _replace_nicknames_in_contexts(self, req: ProviderRequest, replace_map: dict):
         """在历史记录 (req.contexts) 中替换所有已知用户的昵称（传统模式）"""
@@ -558,7 +560,7 @@ class UniNicknamePlugin(Star):
             logger.info(f"[uni_nickname] 管理员设置昵称映射: {user_id} -> {nickname}")
         except Exception as e:
             yield event.plain_result(f"❌ 设置失败: {str(e)}")
-            logger.error(f"设置昵称映射失败: {e}")
+            logger.error(f"[uni_nickname] 设置昵称映射失败: {e}")
 
     @nickname_group.command("setme")
     async def set_my_nickname(self, event: AstrMessageEvent, nickname: str):
@@ -572,10 +574,10 @@ class UniNicknamePlugin(Star):
             self._set_nickname_mapping(user_id, nickname)
 
             yield event.plain_result(f"✅ 已将您的昵称设置为: {nickname}")
-            logger.info(f"管理员为自己设置昵称: {user_id} -> {nickname}")
+            logger.info(f"[uni_nickname] 管理员为自己设置昵称: {user_id} -> {nickname}")
         except Exception as e:
             yield event.plain_result(f"❌ 设置失败: {str(e)}")
-            logger.error(f"设置昵称失败: {e}")
+            logger.error(f"[uni_nickname] 设置昵称失败: {e}")
 
     @nickname_group.command("remove")
     async def remove_nickname(self, event: AstrMessageEvent, user_id: str):
@@ -590,12 +592,12 @@ class UniNicknamePlugin(Star):
                 yield event.plain_result(
                     f"✅ 已删除用户 {user_id} 的昵称映射（原昵称: {nickname}）"
                 )
-                logger.info(f"管理员删除昵称映射: {user_id}")
+                logger.info(f"[uni_nickname] 管理员删除昵称映射: {user_id}")
             else:
                 yield event.plain_result(f"⚠️ 用户 {user_id} 没有设置昵称映射")
         except Exception as e:
             yield event.plain_result(f"❌ 删除失败: {str(e)}")
-            logger.error(f"删除昵称映射失败: {e}")
+            logger.error(f"[uni_nickname] 删除昵称映射失败: {e}")
 
     @nickname_group.command("list")
     async def list_nicknames(self, event: AstrMessageEvent):
@@ -618,8 +620,8 @@ class UniNicknamePlugin(Star):
             yield event.plain_result(result)
         except Exception as e:
             yield event.plain_result(f"❌ 查询失败: {str(e)}")
-            logger.error(f"查询昵称映射失败: {e}")
+            logger.error(f"[uni_nickname] 查询昵称映射失败: {e}")
 
     async def terminate(self):
         """插件卸载时调用"""
-        logger.info("统一昵称插件已卸载")
+        logger.info("[uni_nickname] 统一昵称插件已卸载")
