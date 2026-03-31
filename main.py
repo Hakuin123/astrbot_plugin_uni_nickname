@@ -1,4 +1,5 @@
 import re
+import json
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger, AstrBotConfig
@@ -70,6 +71,63 @@ class UniNicknamePlugin(Star):
         if nickname is not None:
             self._save_mappings(mappings)
         return nickname
+
+    def _build_nickname_review_prompt(
+        self,
+        sender_name: str,
+        nickname: str,
+    ) -> str:
+        """构造昵称审核提示词。"""
+        template = (self.config.get("nickname_review_prompt", "") or "").strip()
+        if not template:
+            raise ValueError("昵称审核提示词不能为空")
+        return template.format(
+            sender_name=sender_name or "",
+            nickname=nickname,
+        )
+
+    async def _review_nickname_by_ai(
+        self,
+        event: AstrMessageEvent,
+        nickname: str,
+    ) -> tuple[bool, str]:
+        """调用 AI 审核昵称是否合法。"""
+        if not self.config.get("enable_nickname_review", False):
+            return True, "未开启昵称审核"
+
+        provider = self.context.get_using_provider(event.unified_msg_origin)
+        if not provider:
+            return False, "审核失败：当前未找到可用对话模型"
+
+        review_model = (self.config.get("nickname_review_model", "") or "").strip()
+        prompt = self._build_nickname_review_prompt(
+            sender_name=event.get_sender_name() or "",
+            nickname=nickname,
+        )
+
+        try:
+            llm_resp = await provider.text_chat(
+                prompt=prompt,
+                model=review_model or None,
+                func_tool=None,
+            )
+        except Exception as e:
+            logger.error(f"[uni_nickname] AI 昵称审核失败: {e}")
+            return False, f"审核失败：{e}"
+
+        content = (llm_resp.completion_text or "").strip()
+        if not content:
+            return False, "审核失败：审核模型未返回结果"
+
+        try:
+            result = json.loads(content)
+        except Exception:
+            logger.warning(f"[uni_nickname] 审核结果不是合法 JSON: {content}")
+            return False, "审核失败：审核模型返回格式无效"
+
+        approved = bool(result.get("approved", False))
+        reason = str(result.get("reason", "")).strip() or "未提供原因"
+        return approved, reason
 
     def _system_replace_in_text(self, text: str, mappings: dict) -> str:
         """
@@ -451,6 +509,11 @@ class UniNicknamePlugin(Star):
         nickname = nickname.strip()
         if not nickname:
             return "设置失败：称呼不能为空"
+
+        approved, reason = await self._review_nickname_by_ai(event, nickname)
+        if not approved:
+            logger.info(f"[uni_nickname] LLM 昵称审核未通过: nickname={nickname}, reason={reason}")
+            return f"审核不通过：{reason}"
 
         user_id = event.get_sender_id()
         self._set_nickname_mapping(user_id, nickname)
