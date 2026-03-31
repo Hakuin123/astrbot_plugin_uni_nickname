@@ -56,6 +56,20 @@ class UniNicknamePlugin(Star):
         # 同步更新内存缓存，确保下一次 LLM 请求立即生效
         self._mappings_cache = mappings
 
+    def _set_nickname_mapping(self, user_id: str, nickname: str) -> None:
+        """写入单个昵称映射并同步缓存"""
+        mappings = self._parse_mappings()
+        mappings[user_id] = nickname
+        self._save_mappings(mappings)
+
+    def _remove_nickname_mapping(self, user_id: str) -> str | None:
+        """删除单个昵称映射，返回被删除的昵称"""
+        mappings = self._parse_mappings()
+        nickname = mappings.pop(user_id, None)
+        if nickname is not None:
+            self._save_mappings(mappings)
+        return nickname
+
     def _system_replace_in_text(self, text: str, mappings: dict) -> str:
         """
         智能替换：只替换形如 <system_reminder>...User ID: 123, Nickname: 原始名 中的原始名
@@ -411,6 +425,29 @@ class UniNicknamePlugin(Star):
             f"[uni_nickname] 历史记录替换执行完毕，共修改 {replace_count} 条消息。"
         )
 
+    @filter.llm_tool(name="set_user_nickname")
+    async def set_user_nickname_tool(
+        self,
+        event: AstrMessageEvent,
+        nickname: str,
+    ) -> str:
+        """为当前发言人设置统一称呼。
+
+        仅当用户明确要求你以后用某个称呼称呼他/她/TA时才调用。
+        该工具会把当前发言人的用户 ID 绑定到指定称呼，供后续对话持续使用。
+
+        Args:
+            nickname(string): 要为当前发言人设置的称呼。应当简短、明确，通常是用户刚刚指定你使用的名字、昵称、称谓或代号。
+        """
+        nickname = nickname.strip()
+        if not nickname:
+            return "设置失败：称呼不能为空"
+
+        user_id = event.get_sender_id()
+        self._set_nickname_mapping(user_id, nickname)
+        logger.info(f"[uni_nickname] LLM 已设置昵称映射: {user_id} -> {nickname}")
+        return f"已为当前发言人设置统一称呼：{nickname}。后续对话请使用这个称呼称呼该用户"
+
     # 以下命令组保持不变
     @filter.command_group("nickname")
     @filter.permission_type(filter.PermissionType.ADMIN)
@@ -425,15 +462,10 @@ class UniNicknamePlugin(Star):
         用法: /nickname set <用户ID> <昵称>
         """
         try:
-            # 获取当前映射
-            mappings = self._parse_mappings()
-            # 添加或更新映射
-            mappings[user_id] = nickname
-            # 保存配置
-            self._save_mappings(mappings)
+            self._set_nickname_mapping(user_id, nickname)
 
             yield event.plain_result(f"✅ 已设置用户 {user_id} 的昵称为: {nickname}")
-            logger.info(f"管理员设置昵称映射: {user_id} -> {nickname}")
+            logger.info(f"[uni_nickname] 管理员设置昵称映射: {user_id} -> {nickname}")
         except Exception as e:
             yield event.plain_result(f"❌ 设置失败: {str(e)}")
             logger.error(f"设置昵称映射失败: {e}")
@@ -447,14 +479,7 @@ class UniNicknamePlugin(Star):
         try:
             user_id = event.get_sender_id()
 
-            # 获取当前映射
-            mappings = self._parse_mappings()
-
-            # 添加或更新映射
-            mappings[user_id] = nickname
-
-            # 保存配置
-            self._save_mappings(mappings)
+            self._set_nickname_mapping(user_id, nickname)
 
             yield event.plain_result(f"✅ 已将您的昵称设置为: {nickname}")
             logger.info(f"管理员为自己设置昵称: {user_id} -> {nickname}")
@@ -469,15 +494,9 @@ class UniNicknamePlugin(Star):
         用法: /nickname remove <用户ID>
         """
         try:
-            # 获取当前映射
-            mappings = self._parse_mappings()
+            nickname = self._remove_nickname_mapping(user_id)
 
-            if user_id in mappings:
-                nickname = mappings[user_id]
-                del mappings[user_id]
-
-                # 保存配置
-                self._save_mappings(mappings)
+            if nickname is not None:
 
                 yield event.plain_result(
                     f"✅ 已删除用户 {user_id} 的昵称映射（原昵称: {nickname}）"
