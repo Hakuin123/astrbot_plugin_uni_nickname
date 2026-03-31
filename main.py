@@ -81,9 +81,10 @@ class UniNicknamePlugin(Star):
         template = (self.config.get("nickname_review_prompt", "") or "").strip()
         if not template:
             raise ValueError("昵称审核提示词不能为空")
-        return template.format(
-            sender_name=sender_name or "",
-            nickname=nickname,
+
+        return (
+            template.replace("{sender_name}", sender_name or "")
+            .replace("{nickname}", nickname)
         )
 
     async def _review_nickname_by_ai(
