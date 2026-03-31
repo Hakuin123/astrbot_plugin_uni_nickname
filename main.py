@@ -23,7 +23,9 @@ class UniNicknamePlugin(Star):
         if self.config.get("working_mode") == "global":
             self.config["working_mode"] = "global_replace"
             self.config.save_config()
-            logger.info("[uni_nickname] 已将旧版 'global' 配置自动迁移至 'global_replace'")
+            logger.info(
+                "[uni_nickname] 已将旧版 'global' 配置自动迁移至 'global_replace'"
+            )
 
         self._mappings_cache = self._parse_mappings()
         # 运行时缓存：用户ID -> 原始平台昵称
@@ -84,7 +86,6 @@ class UniNicknamePlugin(Star):
             )
         else:
             raise ValueError("昵称审核提示词不能为空")
-
 
     async def _review_nickname_by_ai(
         self,
@@ -536,9 +537,7 @@ class UniNicknamePlugin(Star):
         user_id = event.get_sender_id()
         self._set_nickname_mapping(user_id, nickname)
         logger.info(f"[uni_nickname] LLM 已设置昵称映射: {user_id} -> {nickname}")
-        return (
-            f"已为当前发言人设置昵称：{nickname}。后续对话请使用这个昵称来称呼该用户"
-        )
+        return f"已为当前发言人设置昵称：{nickname}。后续对话请使用这个昵称来称呼该用户"
 
     # 以下命令组保持不变
     @filter.command_group("nickname")
