@@ -77,7 +77,7 @@ class UniNicknamePlugin(Star):
         sender_name: str,
         nickname: str,
     ) -> str:
-        """构造昵称审核提示词。"""
+        """构造昵称审核提示词"""
         template = (self.config.get("nickname_review_prompt", "") or "").strip()
         if not template:
             raise ValueError("昵称审核提示词不能为空")
@@ -91,7 +91,7 @@ class UniNicknamePlugin(Star):
         event: AstrMessageEvent,
         nickname: str,
     ) -> tuple[bool, str]:
-        """调用 AI 审核昵称是否合法。"""
+        """调用 AI 审核昵称是否合法"""
         if not self.config.get("enable_nickname_review", False):
             return True, "未开启昵称审核"
 
@@ -193,7 +193,7 @@ class UniNicknamePlugin(Star):
         return False
 
     def _get_textpart_text(self, part) -> str | None:
-        """兼容 AstrBot 的 TextPart 对象和字典格式的文本块。"""
+        """兼容 AstrBot 的 TextPart 对象和字典格式的文本块"""
         if hasattr(part, "text") and isinstance(part.text, str):
             return part.text
         if isinstance(part, dict) and part.get("type") == "text":
@@ -203,7 +203,7 @@ class UniNicknamePlugin(Star):
         return None
 
     def _set_textpart_text(self, part, text: str) -> bool:
-        """更新文本块内容，兼容对象和字典格式。"""
+        """更新文本块内容，兼容对象和字典格式"""
         if hasattr(part, "text") and isinstance(getattr(part, "text", None), str):
             part.text = text
             return True
@@ -215,7 +215,7 @@ class UniNicknamePlugin(Star):
     def _request_has_identity_reminder(
         self, req: ProviderRequest, user_id: str
     ) -> bool:
-        """检查请求中是否已有当前用户的身份提醒。"""
+        """检查请求中是否已有当前用户的身份提醒"""
         pattern = re.compile(
             rf"<system_reminder>.*?User ID:\s*{re.escape(user_id)}\s*,\s*Nickname:\s*",
             flags=re.IGNORECASE,
@@ -232,9 +232,9 @@ class UniNicknamePlugin(Star):
         return False
 
     def _warn_identifier_not_enabled(self):
-        """提示用户检查 AstrBot 的用户识别配置。"""
+        """提示用户检查 AstrBot 的用户识别配置"""
         logger.warning(
-            "[uni_nickname] 未检测到 <system_reminder> 身份标签。请检查 AstrBot 设置中是否已开启用户识别（provider_settings.identifier）。"
+            "[uni_nickname] 未检测到 <system_reminder> 身份标签。请检查 AstrBot 设置中是否已开启用户识别（provider_settings.identifier）"
         )
 
     def _system_replace_in_contexts(self, contexts: list, mappings: dict):
@@ -269,7 +269,7 @@ class UniNicknamePlugin(Star):
                         f"[uni_nickname] 已智能替换历史记录第 {i} 条多模态消息"
                     )
         logger.info(
-            f"[uni_nickname] 智能替换历史记录执行完毕，共修改 {replace_count} 条消息。"
+            f"[uni_nickname] 智能替换历史记录执行完毕，共修改 {replace_count} 条消息"
         )
 
     def _log_current_user_prompt(self, req: ProviderRequest):
@@ -355,10 +355,10 @@ class UniNicknamePlugin(Star):
                     f"[uni_nickname] 命中映射: {sender_id} -> {custom_nickname} (平台获取到的原始昵称: {original_nickname})"
                 )
 
-                # 平台昵称可能为空（部分平台/场景常见），此时仅告警，不终止后续模式处理。
+                # 平台昵称可能为空（部分平台/场景常见），此时仅告警，不终止后续模式处理
                 if not original_nickname:
                     logger.warning(
-                        f"[uni_nickname] 无法获取用户 {sender_id} 的原始昵称（Platform Name 为空），将继续执行可用的映射逻辑。"
+                        f"[uni_nickname] 无法获取用户 {sender_id} 的原始昵称（Platform Name 为空），将继续执行可用的映射逻辑"
                     )
 
                 working_mode = self.config.get("working_mode", "system_replace")
@@ -446,7 +446,7 @@ class UniNicknamePlugin(Star):
                         # self._log_current_user_prompt(req)
 
             else:
-                logger.debug(f"[uni_nickname] 用户 {sender_id} 不在映射表中，跳过。")
+                logger.debug(f"[uni_nickname] 用户 {sender_id} 不在映射表中，跳过")
 
         except Exception as e:
             logger.error(f"处理昵称时出错: {e}")
@@ -503,7 +503,7 @@ class UniNicknamePlugin(Star):
                     logger.debug(f"[uni_nickname] 已修改历史记录第 {i} 条多模态消息")
 
         logger.info(
-            f"[uni_nickname] 历史记录替换执行完毕，共修改 {replace_count} 条消息。"
+            f"[uni_nickname] 历史记录替换执行完毕，共修改 {replace_count} 条消息"
         )
 
     @filter.llm_tool(name="set_user_nickname")
@@ -535,7 +535,7 @@ class UniNicknamePlugin(Star):
         self._set_nickname_mapping(user_id, nickname)
         logger.info(f"[uni_nickname] LLM 已设置昵称映射: {user_id} -> {nickname}")
         return (
-            f"已为当前发言人设置统一称呼：{nickname}。后续对话请使用这个称呼称呼该用户"
+            f"已为当前发言人设置昵称：{nickname}。后续对话请使用这个昵称来称呼该用户"
         )
 
     # 以下命令组保持不变
