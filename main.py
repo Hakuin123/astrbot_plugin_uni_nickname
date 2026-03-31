@@ -12,7 +12,7 @@ import textwrap
     "uni_nickname",
     "Hakuin123",
     "统一昵称插件 - 使用管理员配置的映射表统一用户昵称",
-    "1.2.1",
+    "1.3.0",
 )
 class UniNicknamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
