@@ -518,7 +518,7 @@ class UniNicknamePlugin(Star):
         该工具会把当前发言人的用户 ID 绑定到指定称呼，供后续对话持续使用。
 
         Args:
-            nickname(string): 要为当前发言人设置的称呼。应当简短、明确，通常是用户刚刚指定你使用的名字、昵称、称谓或代号。
+            nickname(string): 要为当前发言人设置的称呼。应当简短、明确，通常是用户刚刚指定你使用的名字、昵称或代号
         """
         nickname = nickname.strip()
         if not nickname:
