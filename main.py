@@ -1,8 +1,10 @@
 import re
+import json
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger, AstrBotConfig
 from astrbot.api.provider import ProviderRequest
+from astrbot.core.provider.func_tool_manager import FunctionToolManager
 import textwrap
 
 
@@ -16,13 +18,13 @@ class UniNicknamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
-        
+
         # 兼容老版本配置：将旧的 "global" 模式自动升级为 "global_replace"
         if self.config.get("working_mode") == "global":
             self.config["working_mode"] = "global_replace"
             self.config.save_config()
             logger.info("已将旧版 'global' 配置自动迁移至 'global_replace'")
-            
+
         self._mappings_cache = self._parse_mappings()
         # 运行时缓存：用户ID -> 原始平台昵称
         # 用于在历史记录中替换所有已知用户的昵称
@@ -56,19 +58,103 @@ class UniNicknamePlugin(Star):
         # 同步更新内存缓存，确保下一次 LLM 请求立即生效
         self._mappings_cache = mappings
 
+    def _set_nickname_mapping(self, user_id: str, nickname: str) -> None:
+        """写入单个昵称映射并同步缓存"""
+        mappings = self._parse_mappings()
+        mappings[user_id] = nickname
+        self._save_mappings(mappings)
+
+    def _remove_nickname_mapping(self, user_id: str) -> str | None:
+        """删除单个昵称映射，返回被删除的昵称"""
+        mappings = self._parse_mappings()
+        nickname = mappings.pop(user_id, None)
+        if nickname is not None:
+            self._save_mappings(mappings)
+        return nickname
+
+    def _build_nickname_review_prompt(
+        self,
+        sender_name: str,
+        nickname: str,
+    ) -> str:
+        """构造昵称审核提示词"""
+        template = (self.config.get("nickname_review_prompt", "") or "").strip()
+        if not template:
+            raise ValueError("昵称审核提示词不能为空")
+
+        return template.replace("{sender_name}", sender_name or "").replace(
+            "{nickname}", nickname
+        )
+
+    async def _review_nickname_by_ai(
+        self,
+        event: AstrMessageEvent,
+        nickname: str,
+    ) -> tuple[bool, str]:
+        """调用 AI 审核昵称是否合法"""
+        if not self.config.get("enable_nickname_review", False):
+            return True, "未开启昵称审核"
+
+        if review_provider_id := (
+            self.config.get("nickname_review_model", "") or ""
+        ).strip():
+            provider = self.context.get_provider_by_id(review_provider_id)
+            if not provider:
+                return (
+                    False,
+                    f"审核失败：未找到指定审核模型提供商 ID：{review_provider_id}",
+                )
+        else:
+            provider = self.context.get_using_provider(event.unified_msg_origin)
+            if not provider:
+                return False, "审核失败：当前未找到可用对话模型"
+
+        prompt = self._build_nickname_review_prompt(
+            sender_name=event.get_sender_name() or "",
+            nickname=nickname,
+        )
+
+        try:
+            llm_resp = await provider.text_chat(
+                prompt=prompt,
+                func_tool=None,
+            )
+        except Exception as e:
+            logger.error(f"[uni_nickname] AI 昵称审核失败: {e}")
+            return False, f"审核失败：{e}"
+
+        content = (llm_resp.completion_text or "").strip()
+        if not content:
+            return False, "审核失败：审核模型未返回结果"
+
+        try:
+            result = json.loads(content)
+        except Exception:
+            logger.warning(f"[uni_nickname] 审核结果不是合法 JSON: {content}")
+            return False, "审核失败：审核模型返回格式无效"
+
+        approved = result.get("approved", False)
+        if not isinstance(approved, bool):
+            logger.warning(f"[uni_nickname] 审核结果中的 approved 不是布尔值: {result}")
+            return False, "审核失败：审核模型返回的 approved 字段不是布尔值"
+        reason = str(result.get("reason", "")).strip() or "未提供原因"
+        return approved, reason
+
     def _system_replace_in_text(self, text: str, mappings: dict) -> str:
         """
         智能替换：只替换形如 <system_reminder>...User ID: 123, Nickname: 原始名 中的原始名
         """
         # 匹配模式：
         # 修改点：将 Nickname:\s* 改为 Nickname:[ \t]*，防止吞掉紧跟的换行符
-        pattern = r"(<system_reminder>.*?User ID:\s*([^,\n]+),\s*Nickname:[ \t]*)([^\n<]*)"
+        pattern = (
+            r"(<system_reminder>.*?User ID:\s*([^,\n]+),\s*Nickname:[ \t]*)([^\n<]*)"
+        )
 
         def replacer(match):
             prefix = match.group(1)
             user_id = match.group(2).strip()
             original_nick = match.group(3)
-            
+
             if user_id in mappings:
                 custom_nick = mappings[user_id]
                 if custom_nick != original_nick:
@@ -107,7 +193,7 @@ class UniNicknamePlugin(Star):
         return False
 
     def _get_textpart_text(self, part) -> str | None:
-        """兼容 AstrBot 的 TextPart 对象和字典格式的文本块。"""
+        """兼容 AstrBot 的 TextPart 对象和字典格式的文本块"""
         if hasattr(part, "text") and isinstance(part.text, str):
             return part.text
         if isinstance(part, dict) and part.get("type") == "text":
@@ -117,7 +203,7 @@ class UniNicknamePlugin(Star):
         return None
 
     def _set_textpart_text(self, part, text: str) -> bool:
-        """更新文本块内容，兼容对象和字典格式。"""
+        """更新文本块内容，兼容对象和字典格式"""
         if hasattr(part, "text") and isinstance(getattr(part, "text", None), str):
             part.text = text
             return True
@@ -126,8 +212,10 @@ class UniNicknamePlugin(Star):
             return True
         return False
 
-    def _request_has_identity_reminder(self, req: ProviderRequest, user_id: str) -> bool:
-        """检查请求中是否已有当前用户的身份提醒。"""
+    def _request_has_identity_reminder(
+        self, req: ProviderRequest, user_id: str
+    ) -> bool:
+        """检查请求中是否已有当前用户的身份提醒"""
         pattern = re.compile(
             rf"<system_reminder>.*?User ID:\s*{re.escape(user_id)}\s*,\s*Nickname:\s*",
             flags=re.IGNORECASE,
@@ -144,9 +232,9 @@ class UniNicknamePlugin(Star):
         return False
 
     def _warn_identifier_not_enabled(self):
-        """提示用户检查 AstrBot 的用户识别配置。"""
+        """提示用户检查 AstrBot 的用户识别配置"""
         logger.warning(
-            "[uni_nickname] 未检测到 <system_reminder> 身份标签。请检查 AstrBot 设置中是否已开启用户识别（provider_settings.identifier）。"
+            "[uni_nickname] 未检测到 <system_reminder> 身份标签。请检查 AstrBot 设置中是否已开启用户识别（provider_settings.identifier）"
         )
 
     def _system_replace_in_contexts(self, contexts: list, mappings: dict):
@@ -181,7 +269,7 @@ class UniNicknamePlugin(Star):
                         f"[uni_nickname] 已智能替换历史记录第 {i} 条多模态消息"
                     )
         logger.info(
-            f"[uni_nickname] 智能替换历史记录执行完毕，共修改 {replace_count} 条消息。"
+            f"[uni_nickname] 智能替换历史记录执行完毕，共修改 {replace_count} 条消息"
         )
 
     def _log_current_user_prompt(self, req: ProviderRequest):
@@ -235,6 +323,14 @@ class UniNicknamePlugin(Star):
     ):
         """在LLM请求前根据配置的模式处理昵称（使用内存缓存）"""
         try:
+            tool_set = req.func_tool
+            if isinstance(tool_set, FunctionToolManager):
+                req.func_tool = tool_set.get_full_tool_set()
+                tool_set = req.func_tool
+
+            if tool_set and not self.config.get("enable_llm_tool", False):
+                tool_set.remove_tool("set_user_nickname")
+
             sender_id = event.get_sender_id()
             original_nickname = event.get_sender_name()
             logger.debug(f"[uni_nickname] 收到 LLM 请求拦截，发送者 ID: {sender_id}")
@@ -259,10 +355,10 @@ class UniNicknamePlugin(Star):
                     f"[uni_nickname] 命中映射: {sender_id} -> {custom_nickname} (平台获取到的原始昵称: {original_nickname})"
                 )
 
-                # 平台昵称可能为空（部分平台/场景常见），此时仅告警，不终止后续模式处理。
+                # 平台昵称可能为空（部分平台/场景常见），此时仅告警，不终止后续模式处理
                 if not original_nickname:
                     logger.warning(
-                        f"[uni_nickname] 无法获取用户 {sender_id} 的原始昵称（Platform Name 为空），将继续执行可用的映射逻辑。"
+                        f"[uni_nickname] 无法获取用户 {sender_id} 的原始昵称（Platform Name 为空），将继续执行可用的映射逻辑"
                     )
 
                 working_mode = self.config.get("working_mode", "system_replace")
@@ -349,9 +445,8 @@ class UniNicknamePlugin(Star):
                         # 测试用，输出完整输入日志
                         # self._log_current_user_prompt(req)
 
-
             else:
-                logger.debug(f"[uni_nickname] 用户 {sender_id} 不在映射表中，跳过。")
+                logger.debug(f"[uni_nickname] 用户 {sender_id} 不在映射表中，跳过")
 
         except Exception as e:
             logger.error(f"处理昵称时出错: {e}")
@@ -408,7 +503,39 @@ class UniNicknamePlugin(Star):
                     logger.debug(f"[uni_nickname] 已修改历史记录第 {i} 条多模态消息")
 
         logger.info(
-            f"[uni_nickname] 历史记录替换执行完毕，共修改 {replace_count} 条消息。"
+            f"[uni_nickname] 历史记录替换执行完毕，共修改 {replace_count} 条消息"
+        )
+
+    @filter.llm_tool(name="set_user_nickname")
+    async def set_user_nickname_tool(
+        self,
+        event: AstrMessageEvent,
+        nickname: str,
+    ) -> str:
+        """为当前发言人设置统一称呼。
+
+        仅当用户明确要求你以后用某个称呼称呼他/她/TA时才调用。
+        该工具会把当前发言人的用户 ID 绑定到指定称呼，供后续对话持续使用。
+
+        Args:
+            nickname(string): 要为当前发言人设置的称呼。应当简短、明确，通常是用户刚刚指定你使用的名字、昵称或代号
+        """
+        nickname = nickname.strip()
+        if not nickname:
+            return "设置失败：称呼不能为空"
+
+        approved, reason = await self._review_nickname_by_ai(event, nickname)
+        if not approved:
+            logger.info(
+                f"[uni_nickname] LLM 昵称审核未通过: nickname={nickname}, reason={reason}"
+            )
+            return f"审核不通过：{reason}"
+
+        user_id = event.get_sender_id()
+        self._set_nickname_mapping(user_id, nickname)
+        logger.info(f"[uni_nickname] LLM 已设置昵称映射: {user_id} -> {nickname}")
+        return (
+            f"已为当前发言人设置昵称：{nickname}。后续对话请使用这个昵称来称呼该用户"
         )
 
     # 以下命令组保持不变
@@ -425,15 +552,10 @@ class UniNicknamePlugin(Star):
         用法: /nickname set <用户ID> <昵称>
         """
         try:
-            # 获取当前映射
-            mappings = self._parse_mappings()
-            # 添加或更新映射
-            mappings[user_id] = nickname
-            # 保存配置
-            self._save_mappings(mappings)
+            self._set_nickname_mapping(user_id, nickname)
 
             yield event.plain_result(f"✅ 已设置用户 {user_id} 的昵称为: {nickname}")
-            logger.info(f"管理员设置昵称映射: {user_id} -> {nickname}")
+            logger.info(f"[uni_nickname] 管理员设置昵称映射: {user_id} -> {nickname}")
         except Exception as e:
             yield event.plain_result(f"❌ 设置失败: {str(e)}")
             logger.error(f"设置昵称映射失败: {e}")
@@ -447,14 +569,7 @@ class UniNicknamePlugin(Star):
         try:
             user_id = event.get_sender_id()
 
-            # 获取当前映射
-            mappings = self._parse_mappings()
-
-            # 添加或更新映射
-            mappings[user_id] = nickname
-
-            # 保存配置
-            self._save_mappings(mappings)
+            self._set_nickname_mapping(user_id, nickname)
 
             yield event.plain_result(f"✅ 已将您的昵称设置为: {nickname}")
             logger.info(f"管理员为自己设置昵称: {user_id} -> {nickname}")
@@ -469,16 +584,9 @@ class UniNicknamePlugin(Star):
         用法: /nickname remove <用户ID>
         """
         try:
-            # 获取当前映射
-            mappings = self._parse_mappings()
+            nickname = self._remove_nickname_mapping(user_id)
 
-            if user_id in mappings:
-                nickname = mappings[user_id]
-                del mappings[user_id]
-
-                # 保存配置
-                self._save_mappings(mappings)
-
+            if nickname is not None:
                 yield event.plain_result(
                     f"✅ 已删除用户 {user_id} 的昵称映射（原昵称: {nickname}）"
                 )
