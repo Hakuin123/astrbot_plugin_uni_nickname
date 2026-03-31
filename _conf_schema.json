@@ -22,7 +22,7 @@
     "description": "启用 LLM 昵称设置工具",
     "type": "bool",
     "default": true,
-    "hint": "赋予 AI 在自然对话中为当前用户设置昵称的能力"
+    "hint": "赋予 LLM 在自然对话中为当前用户设置昵称的能力"
   },
   "enable_nickname_review": {
     "description": "启用 AI 昵称审核",

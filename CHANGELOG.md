@@ -4,14 +4,18 @@
 
 ## 最新版本
 
-## v1.2.2
+## v1.3.0
 
-fix: 优化 system_replace 中的文本替换规则，适配部分无法检测用户原昵称的平台 ([#7](https://github.com/Hakuin123/astrbot_plugin_uni_nickname/pull/7), Thanks to **[@olozhika](https://github.com/olozhika)**!)
-
+feat: 新增 LLM 工具，赋予 LLM 在自然对话中为当前用户设置昵称的能力
+feat: 新增呢称审核功能，支持开启基于自定义提示词的 AI 昵称审核
 
 ---
 
 ## 历史更新记录
+
+### v1.2.2
+
+fix: 优化 system_replace 中的文本替换规则，适配部分无法检测用户原昵称的平台 ([#7](https://github.com/Hakuin123/astrbot_plugin_uni_nickname/pull/7), Thanks to **[@olozhika](https://github.com/olozhika)**!)
 
 ### v1.2.1
 
