@@ -17,5 +17,11 @@
     "type": "bool",
     "default": false,
     "hint": "在 global_replace 模式下是否修改上下文历史消息。高风险操作，可能会导致语义混乱及上下文不一致。"
+  },
+  "enable_llm_tool": {
+    "description": "启用 LLM 昵称设置工具",
+    "type": "bool",
+    "default": true,
+    "hint": "赋予 AI 在自然对话中为当前用户设置昵称的能力"
   }
 }

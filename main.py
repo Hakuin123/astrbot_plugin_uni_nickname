@@ -3,6 +3,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger, AstrBotConfig
 from astrbot.api.provider import ProviderRequest
+from astrbot.core.provider.func_tool_manager import FunctionToolManager
 import textwrap
 
 
@@ -249,6 +250,14 @@ class UniNicknamePlugin(Star):
     ):
         """在LLM请求前根据配置的模式处理昵称（使用内存缓存）"""
         try:
+            tool_set = req.func_tool
+            if isinstance(tool_set, FunctionToolManager):
+                req.func_tool = tool_set.get_full_tool_set()
+                tool_set = req.func_tool
+
+            if tool_set and not self.config.get("enable_llm_tool", False):
+                tool_set.remove_tool("set_user_nickname")
+
             sender_id = event.get_sender_id()
             original_nickname = event.get_sender_name()
             logger.debug(f"[uni_nickname] 收到 LLM 请求拦截，发送者 ID: {sender_id}")
