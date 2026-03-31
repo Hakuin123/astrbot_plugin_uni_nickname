@@ -18,13 +18,13 @@ class UniNicknamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
-        
+
         # 兼容老版本配置：将旧的 "global" 模式自动升级为 "global_replace"
         if self.config.get("working_mode") == "global":
             self.config["working_mode"] = "global_replace"
             self.config.save_config()
             logger.info("已将旧版 'global' 配置自动迁移至 'global_replace'")
-            
+
         self._mappings_cache = self._parse_mappings()
         # 运行时缓存：用户ID -> 原始平台昵称
         # 用于在历史记录中替换所有已知用户的昵称
@@ -82,9 +82,8 @@ class UniNicknamePlugin(Star):
         if not template:
             raise ValueError("昵称审核提示词不能为空")
 
-        return (
-            template.replace("{sender_name}", sender_name or "")
-            .replace("{nickname}", nickname)
+        return template.replace("{sender_name}", sender_name or "").replace(
+            "{nickname}", nickname
         )
 
     async def _review_nickname_by_ai(
@@ -96,10 +95,15 @@ class UniNicknamePlugin(Star):
         if not self.config.get("enable_nickname_review", False):
             return True, "未开启昵称审核"
 
-        if review_provider_id := (self.config.get("nickname_review_model", "") or "").strip():
+        if review_provider_id := (
+            self.config.get("nickname_review_model", "") or ""
+        ).strip():
             provider = self.context.get_provider_by_id(review_provider_id)
             if not provider:
-                return False, f"审核失败：未找到指定审核模型提供商 ID：{review_provider_id}"
+                return (
+                    False,
+                    f"审核失败：未找到指定审核模型提供商 ID：{review_provider_id}",
+                )
         else:
             provider = self.context.get_using_provider(event.unified_msg_origin)
             if not provider:
@@ -129,7 +133,10 @@ class UniNicknamePlugin(Star):
             logger.warning(f"[uni_nickname] 审核结果不是合法 JSON: {content}")
             return False, "审核失败：审核模型返回格式无效"
 
-        approved = bool(result.get("approved", False))
+        approved = result.get("approved", False)
+        if not isinstance(approved, bool):
+            logger.warning(f"[uni_nickname] 审核结果中的 approved 不是布尔值: {result}")
+            return False, "审核失败：审核模型返回的 approved 字段不是布尔值"
         reason = str(result.get("reason", "")).strip() or "未提供原因"
         return approved, reason
 
@@ -139,13 +146,15 @@ class UniNicknamePlugin(Star):
         """
         # 匹配模式：
         # 修改点：将 Nickname:\s* 改为 Nickname:[ \t]*，防止吞掉紧跟的换行符
-        pattern = r"(<system_reminder>.*?User ID:\s*([^,\n]+),\s*Nickname:[ \t]*)([^\n<]*)"
+        pattern = (
+            r"(<system_reminder>.*?User ID:\s*([^,\n]+),\s*Nickname:[ \t]*)([^\n<]*)"
+        )
 
         def replacer(match):
             prefix = match.group(1)
             user_id = match.group(2).strip()
             original_nick = match.group(3)
-            
+
             if user_id in mappings:
                 custom_nick = mappings[user_id]
                 if custom_nick != original_nick:
@@ -203,7 +212,9 @@ class UniNicknamePlugin(Star):
             return True
         return False
 
-    def _request_has_identity_reminder(self, req: ProviderRequest, user_id: str) -> bool:
+    def _request_has_identity_reminder(
+        self, req: ProviderRequest, user_id: str
+    ) -> bool:
         """检查请求中是否已有当前用户的身份提醒。"""
         pattern = re.compile(
             rf"<system_reminder>.*?User ID:\s*{re.escape(user_id)}\s*,\s*Nickname:\s*",
@@ -434,7 +445,6 @@ class UniNicknamePlugin(Star):
                         # 测试用，输出完整输入日志
                         # self._log_current_user_prompt(req)
 
-
             else:
                 logger.debug(f"[uni_nickname] 用户 {sender_id} 不在映射表中，跳过。")
 
@@ -516,13 +526,17 @@ class UniNicknamePlugin(Star):
 
         approved, reason = await self._review_nickname_by_ai(event, nickname)
         if not approved:
-            logger.info(f"[uni_nickname] LLM 昵称审核未通过: nickname={nickname}, reason={reason}")
+            logger.info(
+                f"[uni_nickname] LLM 昵称审核未通过: nickname={nickname}, reason={reason}"
+            )
             return f"审核不通过：{reason}"
 
         user_id = event.get_sender_id()
         self._set_nickname_mapping(user_id, nickname)
         logger.info(f"[uni_nickname] LLM 已设置昵称映射: {user_id} -> {nickname}")
-        return f"已为当前发言人设置统一称呼：{nickname}。后续对话请使用这个称呼称呼该用户"
+        return (
+            f"已为当前发言人设置统一称呼：{nickname}。后续对话请使用这个称呼称呼该用户"
+        )
 
     # 以下命令组保持不变
     @filter.command_group("nickname")
@@ -573,7 +587,6 @@ class UniNicknamePlugin(Star):
             nickname = self._remove_nickname_mapping(user_id)
 
             if nickname is not None:
-
                 yield event.plain_result(
                     f"✅ 已删除用户 {user_id} 的昵称映射（原昵称: {nickname}）"
                 )
