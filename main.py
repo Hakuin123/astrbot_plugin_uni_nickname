@@ -96,11 +96,15 @@ class UniNicknamePlugin(Star):
         if not self.config.get("enable_nickname_review", False):
             return True, "未开启昵称审核"
 
-        provider = self.context.get_using_provider(event.unified_msg_origin)
-        if not provider:
-            return False, "审核失败：当前未找到可用对话模型"
+        if review_provider_id := (self.config.get("nickname_review_model", "") or "").strip():
+            provider = self.context.get_provider_by_id(review_provider_id)
+            if not provider:
+                return False, f"审核失败：未找到指定审核模型提供商 ID：{review_provider_id}"
+        else:
+            provider = self.context.get_using_provider(event.unified_msg_origin)
+            if not provider:
+                return False, "审核失败：当前未找到可用对话模型"
 
-        review_model = (self.config.get("nickname_review_model", "") or "").strip()
         prompt = self._build_nickname_review_prompt(
             sender_name=event.get_sender_name() or "",
             nickname=nickname,
@@ -109,7 +113,6 @@ class UniNicknamePlugin(Star):
         try:
             llm_resp = await provider.text_chat(
                 prompt=prompt,
-                model=review_model or None,
                 func_tool=None,
             )
         except Exception as e:
