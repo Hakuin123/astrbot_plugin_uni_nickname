@@ -2,6 +2,8 @@
 
 > 本项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)
 
+> [**戳这里给插件 GitHub 项目点点 Star 喵！点点 Star 谢谢喵！**](https://github.com/Hakuin123/astrbot_plugin_uni_nickname)
+
 ## 最新版本
 
 ## v1.3.0
